@@ -71,10 +71,6 @@ userSchema.methods.comparePassword = function (candidatePassword) {
   });
 };
 
-userSchema.methods.connectToUserDB = function () {
-  return mongoose.createConnection(`mongodb://192.168.60.212:80/${this._id}`, { useNewUrlParser: true, useUnifiedTopology: true });
-};
-
 mongoose.model("User", userSchema);
 
 module.exports = mongoose.model('User');

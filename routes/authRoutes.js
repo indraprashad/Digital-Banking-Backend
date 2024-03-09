@@ -7,9 +7,9 @@ const requireToken = require("../middleware/requireToken");
 const router = express.Router();
 const User = mongoose.model("User");
 const ImageModel = require("../models/Image");
+const Balance = require("../models/Balance");
 const Recharge = require("../models/Recharge");
 const Transfer = require("../models/Transfer");
-const Account = require("../models/Account");
 
 const storage = multer.memoryStorage();
 const upload = multer({ storage: storage });
@@ -104,6 +104,7 @@ router.post("/upload", upload.single("image"), async (req, res) => {
     res.status(500).send("Server Error");
   }
 });
+
 router.get("/images/:_id", async (req, res) => {
   const { _id } = req.params;
   const image = await Image.findOne({ _id });
@@ -116,45 +117,108 @@ router.get("/images/:_id", async (req, res) => {
   res.send(image.image);
 });
 
-router.post('/recharge', async (req, res) => {
+router.post("/amount", async (req, res) => {
   try {
-    const { selectedSim, phoneNumber, amount } = req.body;
-    const recharge = new Recharge({ selectedSim, phoneNumber, amount });
+    const { userId, username, balance } = req.body;
+    if (!userId) {
+      return res.status(400).json({ error: "User ID is required" });
+    }
+    const newBalance = new Balance({
+      _id: userId,
+      username,
+      balance,
+    });
+    await newBalance.save();
+    res.status(201).json({ message: "Balance created successfully" });
+  } catch (error) {
+    console.error(error);
+    res.status(500).json({ error: "Server error" });
+  }
+});
+
+router.get("/balance", async (req, res) => { 
+  const userId = req.query.userId; 
+  try {
+    if (!userId) {
+      return res.status(400).json({ error: "User ID is required" });
+    }
+
+    const userBalance = await Balance.findOne({ _id: userId });
+    if (!userBalance) {
+      return res.status(404).json({ error: "Balance not found for this user" });
+    }
+
+    res.json({ balance: userBalance.balance });
+  } catch (error) {
+    console.error(error);
+    res.status(500).json({ error: "Server error" });
+  }
+});
+
+router.post("/recharge", async (req, res) => {
+  try {
+    const { userId, selectedSim, phoneNumber, amount } = req.body;
+    if (!userId) {
+      return res.status(400).json({ error: "User ID is required" });
+    }
+    if (isNaN(amount) || amount <= 0) {
+      return res.status(400).json({ error: "Invalid recharge amount" });
+    }
+    const userBalance = await Balance.findById(userId);
+    if (!userBalance || userBalance.balance < amount) {
+      return res.status(400).json({ error: "Insufficient balance" });
+    }
+    userBalance.balance -= amount;
+    await userBalance.save();
+    const recharge = new Recharge({ userId, selectedSim, phoneNumber, amount });
     await recharge.save();
-    res.status(201).json({ message: 'Recharge successfully' });
+
+    res.status(201).json({ message: "Recharge successful" });
   } catch (error) {
     console.error(error);
-    res.status(500).json({ error: 'server error' });
+    res.status(500).json({ error: "Server error" });
   }
 });
 
-router.post('/transfer', async (req, res) => { 
+router.post("/transfer", async (req, res) => {
   try {
-    const { sender, recipient, amount } = req.body;
-    const transfer = new Transfer({ sender, recipient, amount });
+    const { _id, recipient, amount, remarks } = req.body;
+
+    // Check if _id, recipient, amount, and remarks are provided
+    if (!_id || !recipient || isNaN(amount) || amount <= 0 || !remarks) {
+      return res.status(400).json({ error: "Invalid transfer details" });
+    }
+
+    // Check if sender has sufficient balance
+    const senderBalance = await Balance.findOne({ _id });
+    if (!senderBalance || senderBalance.balance < amount) {
+      return res.status(400).json({ error: "Insufficient balance" });
+    }
+
+    // Deduct amount from sender's balance
+    senderBalance.balance -= amount;
+    await senderBalance.save();
+
+    // Add amount to recipient's balance
+    let recipientBalance = await Balance.findOne({ _id: recipient });
+    if (!recipientBalance) {
+      recipientBalance = new Balance({ _id: recipient, balance: 0 });
+    }
+    recipientBalance.balance += amount;
+    await recipientBalance.save();
+
+    // Record the transfer transaction
+    const transfer = new Transfer({ sender: _id, recipient, amount, remarks });
     await transfer.save();
-    console.log(`Transfer ${amount} from ${sender} to ${recipient}`);
-    res.status(200).send('Transfer successful');
+
+    res.status(200).json({ message: "Transfer successful" });
   } catch (error) {
     console.error(error);
-    res.status(500).json({ error: 'server error' });
+    res.status(500).json({ error: "Server error" });
   }
 });
 
-router.get('/transfer', async (req, res) => {
-  try {
-    // Retrieve all transfer data from the database
-    const transfers = await Transfer.find({}, 'amount');
-
-    // Send the transfer data as a response
-    res.status(200).json(transfers);
-  } catch (error) {
-    console.error(error);
-    res.status(500).json({ error: 'Server error' });
-  }
-});
-
-router.post('/balance', async (req, res) => {
+router.post("/balance", async (req, res) => {
   const { senderAccountId, recipientAccountId, amount } = req.body;
 
   try {
@@ -182,12 +246,8 @@ router.post('/balance', async (req, res) => {
   }
 });
 
-
 function userResponse(user) {
   return { ...user.toJSON(), password: undefined, confirmPassword: undefined };
 }
-
-
-
 
 module.exports = router;

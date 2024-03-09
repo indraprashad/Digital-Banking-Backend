@@ -11,6 +11,9 @@ const TransferSchema = new Schema({
   amount: {
     type: Number,
   },
+  remarks:{
+    type: String,
+  },
 });
 const Transfer = mongoose.model('Transfer', TransferSchema);
 module.exports = Transfer;
